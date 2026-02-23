@@ -1,0 +1,5 @@
+{
+  "name": "B\u0026R PO Extractor V1.0",
+  "description": "An AI application to extract production-specific order data from Purchase Order PDFs, ignoring financial details. Upload a PO to get a clean list of products and quantities.",
+  "requestFramePermissions": []
+}
