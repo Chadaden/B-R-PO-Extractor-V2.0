@@ -109,8 +109,18 @@ RAW_TEXT_START
 {{RAW_TEXT}}
 RAW_TEXT_END`;
 
-export const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzhtZ9T1OrI-1rQAI5RXR9Xq251WZvfuVxjBs1F5k_xzO9CVwp94gtBeOHIPqWHL-vl/exec";
+export const WEB_APP_URL = import.meta.env?.VITE_WEB_APP_URL || "https://script.google.com/macros/s/AKfycbxe6paYjRi1AqCyfCM18P5-QCHddq3N_Jktw-EYX74rV9NHEucM9azhpn2v5OnUAJ_z/exec";
 
 // The ID of the Google Sheet to use as a template and destination.
 // This sheet must be accessible (e.g., published to the web or shared with the user).
-export const GOOGLE_SHEET_ID = "1Kor3gUkTfcW2Ly8yOUF5_QaCuRRSarz3";
+export const GOOGLE_SHEET_ID = import.meta.env?.VITE_GOOGLE_SHEET_ID || "1y_o_n_zuEbaxXzMeTuqB9_fAdNBrbEkHBiyMr_DCveo";
+
+// Log configuration status on load (will show up in browser console)
+if (typeof window !== 'undefined') {
+  console.log("[Config] App Constants Loaded:", {
+    hasWebAppUrl: !!WEB_APP_URL,
+    webAppUrlPrefix: WEB_APP_URL ? WEB_APP_URL.substring(0, 30) + "..." : "NONE",
+    hasSheetId: !!GOOGLE_SHEET_ID,
+    envMode: import.meta.env?.MODE || "unknown"
+  });
+}

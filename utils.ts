@@ -22,28 +22,39 @@ export const fetchSheetHeadersAndMaxBatch = async (): Promise<{
 
   const fetchCsv = async (sheetName: string): Promise<string[][]> => {
     const url = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch sheet "${sheetName}": ${response.statusText}`);
+    console.log(`[Fetch] Attempting to fetch CSV for sheet: "${sheetName}" from URL: ${url}`);
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`[Fetch] HTTP Error for "${sheetName}":`, response.status, response.statusText);
+        // If it's a 404 or similar, the sheet might not exist yet; we'll return empty instead of crashing.
+        return [];
+      }
+      const csvText = await response.text();
+      const workbook = XLSX.read(csvText, { type: 'string' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      return XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+    } catch (err) {
+      console.warn(`[Fetch] Failed to fetch sheet "${sheetName}". It might not exist or isn't shared:`, err);
+      return []; // Return empty so we can fallback to defaults
     }
-    const csvText = await response.text();
-    const workbook = XLSX.read(csvText, { type: 'string' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    return XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
   };
 
   console.log("Export started: Fetching template headers...");
 
+  // Default headers in case the sheet is new/empty
+  const defaultExtractionHeaders = ["BATCH NUMBER", "DATE CREATED", "ORDER_DATE", "CUSTOMER_NAME", "ORDER_NUMBER", "PRODUCT_DESCRIPTION", "QUANTITY", "INVOICE_QUANTITY", "TINTING", "COMMENTS", "PICKER_NAME"];
+  const defaultTintingHeaders = [...defaultExtractionHeaders];
+
   // Fetch Extraction
   const extractionData = await fetchCsv("Daily Extraction");
-  if (extractionData.length === 0) throw new Error("Daily Extraction sheet is empty.");
-  const extractionHeaders = extractionData[0];
-  console.log("Template headers loaded for Extraction:", extractionHeaders);
+  const extractionHeaders = extractionData.length > 0 ? extractionData[0] : defaultExtractionHeaders;
 
-  // Find Batch Number column index
-  const batchColIndex = extractionHeaders.findIndex(h => h.trim() === "Batch Number");
+  // Find Max Batch Number if data exists
   let maxBatch = 0;
-  if (batchColIndex !== -1) {
+  const batchColIndex = extractionHeaders.findIndex(h => h.trim().toLowerCase() === "batch number");
+  if (batchColIndex !== -1 && extractionData.length > 1) {
     for (let i = 1; i < extractionData.length; i++) {
       const row = extractionData[i];
       const val = parseInt(row[batchColIndex] as string, 10);
@@ -52,13 +63,12 @@ export const fetchSheetHeadersAndMaxBatch = async (): Promise<{
       }
     }
   }
-  console.log(`Computed next batch number: ${maxBatch + 1}`);
 
   // Fetch Tinting
   const tintingData = await fetchCsv("Daily Tinting");
-  if (tintingData.length === 0) throw new Error("Daily Tinting sheet is empty.");
-  const tintingHeaders = tintingData[0];
-  console.log("Template headers loaded for Tinting:", tintingHeaders);
+  const tintingHeaders = tintingData.length > 0 ? tintingData[0] : defaultTintingHeaders;
+
+  console.log("Headers loaded. Extraction:", extractionHeaders.length, "Tinting:", tintingHeaders.length);
 
   return {
     extractionHeaders,
@@ -74,7 +84,7 @@ export const triggerSheetAction = async (action: 'clear_current_batch' | 'get_st
   const response = await fetch(WEB_APP_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'text/plain;charset=utf-8',
+      'Content-Type': 'text/plain',
     },
     body: JSON.stringify({ action }),
   });
@@ -248,16 +258,17 @@ export const queueToExportRows = (queueItems: DailyQueueItem[]): ExportRow[] => 
   for (const order of queueItems) {
     for (const item of order.items) {
       exportRows.push({
-        order_id: order.order_id,
+        batch_number: 0, // Placeholder, filled by alignDataToHeaders
+        date_created: "", // Placeholder, filled by alignDataToHeaders
         order_date: order.order_date,
         customer_name: toTitleCase(order.customer_name),
         order_number: order.order_number,
         product_description: toTitleCase(item.product_description_production),
         quantity: item.quantity,
+        invoice_quantity: "",
         tinting: item.tinting,
         comments: "",
-        invoice_number: "",
-        no_stock: "",
+        picker_name: "",
       });
     }
   }
@@ -271,18 +282,18 @@ export const productionOrderToExportRows = (
   orderData: ProductionOrder,
   sourceFilename: string
 ): ExportRow[] => {
-  const order_id = generateOrderId(); // Generate a transient ID for this export
   return orderData.rows.map(row => ({
-    order_id: order_id,
+    batch_number: 0,
+    date_created: "",
     order_date: orderData.order.order_date,
     customer_name: toTitleCase(orderData.order.customer_name),
     order_number: orderData.order.order_number,
     product_description: toTitleCase(row.product_description_production),
     quantity: row.quantity,
+    invoice_quantity: "",
     tinting: row.tinting,
     comments: "",
-    invoice_number: "",
-    no_stock: "",
+    picker_name: "",
   }));
 };
 
@@ -389,11 +400,17 @@ export const filterTintingItems = (queueItems: DailyQueueItem[]): TintingListIte
         tintingList.push({
           order_id: order.order_id,
           line_id: item.line_id,
+          batch_number: 0, // Placeholder
+          date_created: "", // Placeholder
+          order_date: order.order_date,
           customer_name: order.customer_name,
           order_number: order.order_number,
-          order_date: order.order_date,
-          product_description: item.product_description_production, // Use production for display
+          product_description: item.product_description_production,
           quantity: item.quantity,
+          invoice_quantity: "",
+          tinting: item.tinting,
+          comments: "",
+          picker_name: "",
         });
       }
     }
@@ -413,11 +430,17 @@ export const filterTintingItemsFromOrder = (orderData: ProductionOrder): Tinting
       tintingList.push({
         order_id: `transient-${orderData.order.order_number}`,
         line_id: row.id,
+        batch_number: 0,
+        date_created: "",
         customer_name: orderData.order.customer_name,
         order_number: orderData.order.order_number,
         order_date: orderData.order.order_date,
         product_description: row.product_description_production,
         quantity: row.quantity,
+        invoice_quantity: "",
+        tinting: row.tinting,
+        comments: "",
+        picker_name: "",
       });
     }
   }
@@ -429,11 +452,17 @@ export const filterTintingItemsFromOrder = (orderData: ProductionOrder): Tinting
  */
 export const tintingListToExportRows = (items: TintingListItem[]): TintingExportRow[] => {
   return items.map(item => ({
+    batch_number: item.batch_number,
+    date_created: item.date_created,
+    order_date: item.order_date,
     customer_name: toTitleCase(item.customer_name),
     order_number: item.order_number,
-    order_date: item.order_date,
     product_description: toTitleCase(item.product_description),
     quantity: item.quantity,
+    invoice_quantity: item.invoice_quantity,
+    tinting: item.tinting,
+    comments: item.comments,
+    picker_name: item.picker_name,
   }));
 };
 

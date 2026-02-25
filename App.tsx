@@ -449,7 +449,7 @@ const App: React.FC = () => {
       console.log(`[Export] Apps Script response status: ${response.status}`);
 
       if (!response.ok) {
-        throw new Error(`Network error: ${response.statusText}`);
+        throw new Error(`Google Apps Script returned ${response.status}: ${response.statusText}`);
       }
 
       const result = await response.json();
@@ -463,15 +463,19 @@ const App: React.FC = () => {
         setIsQueueExported(true);
         console.log("Export complete");
       } else {
-        throw new Error(result.message || 'Unknown error from Google Sheets API.');
+        throw new Error(result.message || 'The backup script reported an error but returned no message.');
       }
 
     } catch (error) {
       console.error('Export failed:', error);
       let detailedMessage = 'An unknown error occurred.';
-      if (error instanceof Error) {
+
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        detailedMessage = `Network Error (Failed to fetch). This usually means the Google Apps Script URL is incorrect, the script is not deployed as "Web App", or access is restricted. \n\nTarget URL: ${WEB_APP_URL}`;
+      } else if (error instanceof Error) {
         detailedMessage = error.message;
       }
+
       setToastInfo({ message: `Export failed: ${detailedMessage}`, type: 'error' });
     }
   }, [dailyQueue]);

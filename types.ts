@@ -42,37 +42,38 @@ export interface DailyQueueState {
 }
 
 export interface ExportRow {
-  order_id: string;
+  batch_number: number;
+  date_created: string;
   order_date: string;
   customer_name: string;
   order_number: string;
   product_description: string;
   quantity: string;
+  invoice_quantity: string;
   tinting: "Y" | "N";
   comments: string;
-  invoice_number: string;
-  no_stock: string;
+  picker_name: string;
 }
 
 // Type for items displayed in the new Tinting tab
 export interface TintingListItem {
   order_id: string;
   line_id: string;
+  batch_number: number;
+  date_created: string;
+  order_date: string;
   customer_name: string;
   order_number: string;
-  order_date: string;
   product_description: string;
   quantity: string;
+  invoice_quantity: string;
+  tinting: "Y" | "N";
+  comments: string;
+  picker_name: string;
 }
 
-// Type for exporting tinting data
-export interface TintingExportRow {
-    customer_name: string;
-    order_number: string;
-    order_date: string;
-    product_description: string;
-    quantity: string;
-}
+// Type for exporting tinting data (same as ExportRow now)
+export type TintingExportRow = ExportRow;
 
 // Type for toast notifications
 export interface ToastInfo {
