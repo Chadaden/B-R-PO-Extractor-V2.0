@@ -19,7 +19,7 @@ export async function extractDataFromPdfText(pdfText: string): Promise<Productio
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-1.5-flash',
       contents: fullPrompt,
     });
 
@@ -36,9 +36,15 @@ export async function extractDataFromPdfText(pdfText: string): Promise<Productio
 
   } catch (error) {
     console.error("Error calling Gemini API:", error);
+
+    let message = "An error occurred while communicating with the AI service.";
     if (error instanceof SyntaxError) {
-      throw new Error("Failed to parse the API response as JSON. The format was invalid.");
+      message = "Failed to parse the AI response as JSON. The format was invalid.";
+    } else if (error instanceof Error) {
+      // Pass through the actual error message from the Gemini SDK if possible
+      message = `Gemini API Error: ${error.message}`;
     }
-    throw new Error("An error occurred while communicating with the AI service.");
+
+    throw new Error(message);
   }
 }
