@@ -1,11 +1,11 @@
 
 import * as XLSX from 'xlsx';
 import type { DailyQueueItem, ExportRow, ProductionOrder, TintingListItem, TintingExportRow } from './types';
-import { GOOGLE_SHEET_ID } from './constants';
+import { GOOGLE_SHEET_ID, WEB_APP_URL } from './constants';
 
 export interface ExcelSheet {
-    sheetName: string;
-    rows: Record<string, any>[];
+  sheetName: string;
+  rows: Record<string, any>[];
 }
 
 /**
@@ -35,8 +35,8 @@ export const fetchSheetHeadersAndMaxBatch = async (): Promise<{
   console.log("Export started: Fetching template headers...");
 
   // Fetch Extraction
-  const extractionData = await fetchCsv("Extraction");
-  if (extractionData.length === 0) throw new Error("Extraction sheet is empty.");
+  const extractionData = await fetchCsv("Daily Extraction");
+  if (extractionData.length === 0) throw new Error("Daily Extraction sheet is empty.");
   const extractionHeaders = extractionData[0];
   console.log("Template headers loaded for Extraction:", extractionHeaders);
 
@@ -55,8 +55,8 @@ export const fetchSheetHeadersAndMaxBatch = async (): Promise<{
   console.log(`Computed next batch number: ${maxBatch + 1}`);
 
   // Fetch Tinting
-  const tintingData = await fetchCsv("Tinting");
-  if (tintingData.length === 0) throw new Error("Tinting sheet is empty.");
+  const tintingData = await fetchCsv("Daily Tinting");
+  if (tintingData.length === 0) throw new Error("Daily Tinting sheet is empty.");
   const tintingHeaders = tintingData[0];
   console.log("Template headers loaded for Tinting:", tintingHeaders);
 
@@ -65,6 +65,24 @@ export const fetchSheetHeadersAndMaxBatch = async (): Promise<{
     tintingHeaders,
     nextBatchNumber: maxBatch + 1
   };
+};
+
+/**
+ * Sends a control action to the Google Apps Script backend.
+ */
+export const triggerSheetAction = async (action: 'clear_current_batch' | 'get_status'): Promise<any> => {
+  const response = await fetch(WEB_APP_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8',
+    },
+    body: JSON.stringify({ action }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend error: ${response.statusText}`);
+  }
+  return response.json();
 };
 
 /**
@@ -79,32 +97,32 @@ export const alignDataToHeaders = (
   return data.map(row => {
     return headers.map(header => {
       const key = header.trim();
-      
+
       // Check defaults first (exact match)
       if (defaults[key] !== undefined) return defaults[key];
 
       // Check row (fuzzy match)
       const lowerHeader = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      
+
       // Special mappings
       if (lowerHeader === 'datecreated') return defaults['Date Created'];
       if (lowerHeader === 'batchnumber') return defaults['Batch Number'];
-      
+
       // Check keyMap (exact match on header)
       if (keyMap[key]) return row[keyMap[key]];
 
       // Check keyMap (fuzzy match on header)
       for (const mapKey in keyMap) {
-          if (mapKey.toLowerCase().replace(/[^a-z0-9]/g, '') === lowerHeader) {
-              return row[keyMap[mapKey]];
-          }
+        if (mapKey.toLowerCase().replace(/[^a-z0-9]/g, '') === lowerHeader) {
+          return row[keyMap[mapKey]];
+        }
       }
-      
+
       // Try to find matching key in row
       for (const k in row) {
-          if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === lowerHeader) return row[k];
+        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === lowerHeader) return row[k];
       }
-      
+
       return "";
     });
   });
@@ -208,7 +226,7 @@ export function normalizeOrderDate(dateString: string): { date: string; warning:
     } else { // Assume dd-mm-yyyy
       [day, month, year] = parts.map(p => parseInt(p, 10));
     }
-    
+
     // Basic sanity check on parts
     if (day > 0 && day <= 31 && month > 0 && month <= 12 && year > 1900 && year < 2100) {
       const formattedDay = String(day).padStart(2, '0');
@@ -216,7 +234,7 @@ export function normalizeOrderDate(dateString: string): { date: string; warning:
       return { date: `${formattedDay}/${formattedMonth}/${year}`, warning: null };
     }
   }
-    
+
   // If all parsing fails, return original and flag a warning
   return { date: trimmedDate, warning: `Unrecognized date format: ${trimmedDate}` };
 }
@@ -253,19 +271,19 @@ export const productionOrderToExportRows = (
   orderData: ProductionOrder,
   sourceFilename: string
 ): ExportRow[] => {
-    const order_id = generateOrderId(); // Generate a transient ID for this export
-    return orderData.rows.map(row => ({
-        order_id: order_id,
-        order_date: orderData.order.order_date,
-        customer_name: toTitleCase(orderData.order.customer_name),
-        order_number: orderData.order.order_number,
-        product_description: toTitleCase(row.product_description_production),
-        quantity: row.quantity,
-        tinting: row.tinting,
-        comments: "",
-        invoice_number: "",
-        no_stock: "",
-    }));
+  const order_id = generateOrderId(); // Generate a transient ID for this export
+  return orderData.rows.map(row => ({
+    order_id: order_id,
+    order_date: orderData.order.order_date,
+    customer_name: toTitleCase(orderData.order.customer_name),
+    order_number: orderData.order.order_number,
+    product_description: toTitleCase(row.product_description_production),
+    quantity: row.quantity,
+    tinting: row.tinting,
+    comments: "",
+    invoice_number: "",
+    no_stock: "",
+  }));
 };
 
 /**
@@ -281,7 +299,7 @@ export const exportToCsv = (exportRows: Record<string, any>[], filename: string)
 
   const csvContent = [
     upperCaseHeaders.join(','),
-    ...exportRows.map(row => 
+    ...exportRows.map(row =>
       headers.map(header => {
         const cell = row[header];
         // Quote the cell to handle commas within the text
@@ -289,7 +307,7 @@ export const exportToCsv = (exportRows: Record<string, any>[], filename: string)
       }).join(',')
     )
   ].join('\n');
-  
+
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement("a");
   const url = URL.createObjectURL(blob);
@@ -310,21 +328,21 @@ export const exportToXlsx = (sheets: ExcelSheet[], filename: string): void => {
     alert("Nothing to export.");
     return;
   }
-  
+
   const workbook = XLSX.utils.book_new();
 
   for (const sheet of sheets) {
-      if (sheet.rows.length > 0) {
-          const headerKeys = Object.keys(sheet.rows[0]);
-          const displayHeaders = headerKeys.map(key => key.toUpperCase());
+    if (sheet.rows.length > 0) {
+      const headerKeys = Object.keys(sheet.rows[0]);
+      const displayHeaders = headerKeys.map(key => key.toUpperCase());
 
-          const data = sheet.rows.map(row => 
-              headerKeys.map(key => row[key] ?? "")
-          );
+      const data = sheet.rows.map(row =>
+        headerKeys.map(key => row[key] ?? "")
+      );
 
-          const worksheet = XLSX.utils.aoa_to_sheet([displayHeaders, ...data]);
-          XLSX.utils.book_append_sheet(workbook, worksheet, sheet.sheetName);
-      }
+      const worksheet = XLSX.utils.aoa_to_sheet([displayHeaders, ...data]);
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheet.sheetName);
+    }
   }
 
   if (workbook.SheetNames.length > 0) {
@@ -337,8 +355,8 @@ export const exportToXlsx = (sheets: ExcelSheet[], filename: string): void => {
 
 // --- Tinting Logic ---
 const TINTING_EXCLUDE_KEYWORDS = [
-  'thinners', 'solvents', 'lacquer', 'turps', 'acetone', 'meths', 'epoxy', 
-  'varnish', '2k', 'sanding sealer', 'aluminium', 'aluminum', 'silver', 
+  'thinners', 'solvents', 'lacquer', 'turps', 'acetone', 'meths', 'epoxy',
+  'varnish', '2k', 'sanding sealer', 'aluminium', 'aluminum', 'silver',
   'primer', 'primers', 'black', 'white', 'stoep', 'chrome'
 ];
 
@@ -348,15 +366,15 @@ const TINTING_INCLUDE_KEYWORDS = [
 ];
 
 const isTintable = (description: string, tintingFlag: 'Y' | 'N'): boolean => {
-    if (tintingFlag.toUpperCase() !== 'Y') {
-        return false;
-    }
-    const lowerDesc = description.toLowerCase();
-    const isExcluded = TINTING_EXCLUDE_KEYWORDS.some(keyword => lowerDesc.includes(keyword));
-    if (isExcluded) {
-        return false;
-    }
-    return TINTING_INCLUDE_KEYWORDS.some(keyword => lowerDesc.includes(keyword));
+  if (tintingFlag.toUpperCase() !== 'Y') {
+    return false;
+  }
+  const lowerDesc = description.toLowerCase();
+  const isExcluded = TINTING_EXCLUDE_KEYWORDS.some(keyword => lowerDesc.includes(keyword));
+  if (isExcluded) {
+    return false;
+  }
+  return TINTING_INCLUDE_KEYWORDS.some(keyword => lowerDesc.includes(keyword));
 }
 
 /**
@@ -388,35 +406,35 @@ export const filterTintingItems = (queueItems: DailyQueueItem[]): TintingListIte
  * Filters a single production order to find items that require tinting.
  */
 export const filterTintingItemsFromOrder = (orderData: ProductionOrder): TintingListItem[] => {
-    const tintingList: TintingListItem[] = [];
+  const tintingList: TintingListItem[] = [];
 
-    for (const row of orderData.rows) {
-        if (isTintable(row.product_description_raw, row.tinting)) {
-            tintingList.push({
-                order_id: `transient-${orderData.order.order_number}`,
-                line_id: row.id,
-                customer_name: orderData.order.customer_name,
-                order_number: orderData.order.order_number,
-                order_date: orderData.order.order_date,
-                product_description: row.product_description_production,
-                quantity: row.quantity,
-            });
-        }
+  for (const row of orderData.rows) {
+    if (isTintable(row.product_description_raw, row.tinting)) {
+      tintingList.push({
+        order_id: `transient-${orderData.order.order_number}`,
+        line_id: row.id,
+        customer_name: orderData.order.customer_name,
+        order_number: orderData.order.order_number,
+        order_date: orderData.order.order_date,
+        product_description: row.product_description_production,
+        quantity: row.quantity,
+      });
     }
-    return tintingList;
+  }
+  return tintingList;
 }
 
 /**
  * Converts a list of tinting items into a flat structure suitable for CSV/XLSX export.
  */
 export const tintingListToExportRows = (items: TintingListItem[]): TintingExportRow[] => {
-    return items.map(item => ({
-        customer_name: toTitleCase(item.customer_name),
-        order_number: item.order_number,
-        order_date: item.order_date,
-        product_description: toTitleCase(item.product_description),
-        quantity: item.quantity,
-    }));
+  return items.map(item => ({
+    customer_name: toTitleCase(item.customer_name),
+    order_number: item.order_number,
+    order_date: item.order_date,
+    product_description: toTitleCase(item.product_description),
+    quantity: item.quantity,
+  }));
 };
 
 
@@ -424,68 +442,68 @@ export const tintingListToExportRows = (items: TintingListItem[]): TintingExport
  * Creates and triggers a download for a styled XLSX file for the daily master export.
  */
 export const exportStyledDailyXlsx = (
-    extractionHeaders: string[],
-    extractionRows: any[][],
-    tintingHeaders: string[],
-    tintingRows: any[][],
-    filename: string
+  extractionHeaders: string[],
+  extractionRows: any[][],
+  tintingHeaders: string[],
+  tintingRows: any[][],
+  filename: string
 ): void => {
-    if (extractionRows.length === 0) {
-        alert("Nothing to export.");
-        return;
+  if (extractionRows.length === 0) {
+    alert("Nothing to export.");
+    return;
+  }
+
+  const workbook = XLSX.utils.book_new();
+
+  const borderStyle = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+  const headerStyle = {
+    font: { bold: true },
+    fill: { fgColor: { rgb: "E0E0E0" } }, // Light grey
+    border: borderStyle,
+  };
+  const cellStyle = { border: borderStyle };
+
+  const applyStyling = (ws: XLSX.WorkSheet, data: any[][]) => {
+    if (!ws['!ref']) return;
+    const range = XLSX.utils.decode_range(ws['!ref']);
+
+    // Header style
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cellAddress = XLSX.utils.encode_cell({ r: range.s.r, c: C });
+      if (ws[cellAddress]) ws[cellAddress].s = headerStyle;
     }
 
-    const workbook = XLSX.utils.book_new();
-
-    const borderStyle = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
-    const headerStyle = {
-        font: { bold: true },
-        fill: { fgColor: { rgb: "E0E0E0" } }, // Light grey
-        border: borderStyle,
-    };
-    const cellStyle = { border: borderStyle };
-
-    const applyStyling = (ws: XLSX.WorkSheet, data: any[][]) => {
-        if (!ws['!ref']) return;
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        
-        // Header style
+    // Cell borders, skipping blank rows
+    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+      const isBlankRow = !data[R] || data[R].every(cell => cell === null || cell === '');
+      if (!isBlankRow) {
         for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cellAddress = XLSX.utils.encode_cell({ r: range.s.r, c: C });
-            if (ws[cellAddress]) ws[cellAddress].s = headerStyle;
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }; // Create cell if it doesn't exist
+          ws[cellAddress].s = cellStyle;
         }
-
-        // Cell borders, skipping blank rows
-        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-            const isBlankRow = !data[R] || data[R].every(cell => cell === null || cell === '');
-            if (!isBlankRow) {
-                for (let C = range.s.c; C <= range.e.c; ++C) {
-                    const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-                    if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: '' }; // Create cell if it doesn't exist
-                    ws[cellAddress].s = cellStyle;
-                }
-            }
-        }
-    };
-    
-    // --- Sheet 1: Daily Extraction ---
-    const extractionData: any[][] = [extractionHeaders, ...extractionRows];
-    const wsExtraction = XLSX.utils.aoa_to_sheet(extractionData);
-    // Auto-width columns roughly (20 chars default)
-    wsExtraction['!cols'] = extractionHeaders.map(() => ({ wch: 20 }));
-    applyStyling(wsExtraction, extractionData);
-    XLSX.utils.book_append_sheet(workbook, wsExtraction, "Daily Extraction");
-
-    // --- Sheet 2: Daily Tinting ---
-    if (tintingRows.length > 0) {
-        const tintingData: any[][] = [tintingHeaders, ...tintingRows];
-        const wsTinting = XLSX.utils.aoa_to_sheet(tintingData);
-        wsTinting['!cols'] = tintingHeaders.map(() => ({ wch: 20 }));
-        applyStyling(wsTinting, tintingData);
-        XLSX.utils.book_append_sheet(workbook, wsTinting, "Daily Tinting");
+      }
     }
+  };
 
-    XLSX.writeFile(workbook, filename);
+  // --- Sheet 1: Daily Extraction ---
+  const extractionData: any[][] = [extractionHeaders, ...extractionRows];
+  const wsExtraction = XLSX.utils.aoa_to_sheet(extractionData);
+  // Auto-width columns roughly (20 chars default)
+  wsExtraction['!cols'] = extractionHeaders.map(() => ({ wch: 20 }));
+  applyStyling(wsExtraction, extractionData);
+  XLSX.utils.book_append_sheet(workbook, wsExtraction, "Daily Extraction");
+
+  // --- Sheet 2: Daily Tinting ---
+  if (tintingRows.length > 0) {
+    const tintingData: any[][] = [tintingHeaders, ...tintingRows];
+    const wsTinting = XLSX.utils.aoa_to_sheet(tintingData);
+    wsTinting['!cols'] = tintingHeaders.map(() => ({ wch: 20 }));
+    applyStyling(wsTinting, tintingData);
+    XLSX.utils.book_append_sheet(workbook, wsTinting, "Daily Tinting");
+  }
+
+  XLSX.writeFile(workbook, filename);
 };
 
 
@@ -493,18 +511,18 @@ export const exportStyledDailyXlsx = (
  * Prepares the payload for the Google Sheets sync.
  */
 export const prepareGoogleSheetsPayload = (
-    exportId: string,
-    extractionHeaders: string[],
-    extractionRows: any[][],
-    tintingHeaders: string[],
-    tintingRows: any[][]
+  exportId: string,
+  extractionHeaders: string[],
+  extractionRows: any[][],
+  tintingHeaders: string[],
+  tintingRows: any[][]
 ) => {
-    return {
-        export_id: exportId,
-        exported_at: new Date().toISOString(),
-        extraction_headers: extractionHeaders,
-        extraction_rows: extractionRows,
-        tinting_headers: tintingHeaders,
-        tinting_rows: tintingRows
-    };
+  return {
+    export_id: exportId,
+    exported_at: new Date().toISOString(),
+    extraction_headers: extractionHeaders,
+    extraction_rows: extractionRows,
+    tinting_headers: tintingHeaders,
+    tinting_rows: tintingRows
+  };
 };
