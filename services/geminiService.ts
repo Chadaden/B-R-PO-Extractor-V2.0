@@ -13,23 +13,22 @@ export async function extractDataFromPdfText(pdfText: string): Promise<Productio
     throw new Error("Gemini API Key is missing. Please check your environment variables (GEMINI_API_KEY).");
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const genAI = new GoogleGenAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const fullPrompt = SYSTEM_PROMPT.replace('{{RAW_TEXT}}', pdfText);
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
-      contents: fullPrompt,
-    });
+    const result = await model.generateContent(fullPrompt);
+    const response = await result.response;
+    const text = response.text();
 
-    const text = response.text;
     if (!text) {
       throw new Error("Received an empty response from the API.");
     }
 
     // The API might return the JSON wrapped in markdown backticks.
-    const cleanedText = text.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+    const cleanedText = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
 
     const parsedData: ProductionOrder = JSON.parse(cleanedText);
     return parsedData;
