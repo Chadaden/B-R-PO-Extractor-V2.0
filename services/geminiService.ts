@@ -8,21 +8,31 @@ import type { ProductionOrder } from '../types';
 // const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function extractDataFromPdfText(pdfText: string): Promise<ProductionOrder> {
-  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("Gemini API Key is missing. Please check your environment variables (GEMINI_API_KEY).");
+  // Check all possible environment variable locations
+  const apiKey =
+    (import.meta.env?.VITE_GEMINI_API_KEY) ||
+    (process.env?.GEMINI_API_KEY) ||
+    (process.env?.API_KEY);
+
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+    console.error("[Gemini] API Key Missing. Found:", { apiKey });
+    throw new Error("Gemini API Key is missing or invalid. Please ensure GEMINI_API_KEY or VITE_GEMINI_API_KEY is set in your environment.");
   }
 
-  const genAI = new GoogleGenAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  // Masked log for debugging without exposing secret
+  console.log(`[Gemini] Initializing with key: ${apiKey.substring(0, 6)}...`);
+
+  const ai = new GoogleGenAI({ apiKey });
 
   const fullPrompt = SYSTEM_PROMPT.replace('{{RAW_TEXT}}', pdfText);
 
   try {
-    const result = await model.generateContent(fullPrompt);
-    const response = await result.response;
-    const text = response.text();
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash',
+      contents: fullPrompt,
+    });
 
+    const text = response.text;
     if (!text) {
       throw new Error("Received an empty response from the API.");
     }
